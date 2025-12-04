@@ -92,202 +92,75 @@ project/
 
 ---
 
-# OrthoViewer - Semi-automated Superpixel Labeler
+## 🚀 Setup & Usage Guide
 
-## Setup backend
+### 1\. Setup Backend (Flask)
+
+```bash
+# Navigate to backend directory
 cd backend
+
+# Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate
+
+# Install Python dependencies
 pip install -r requirements.txt
+
+# Run the Flask server
 python app.py
+```
 
-Backend will run on http://127.0.0.1:5000
+> 💡 Backend will run on **[http://127.0.0.1:5000](http://127.0.0.1:5000)** and handle all ML processing.
 
-## Setup frontend (dev)
+### 2\. Setup Frontend (React)
+
+```bash
+# Navigate to frontend directory
 cd frontend
+
+# Install Node dependencies
 npm install
+
+# Start the development server
 npm start
-# frontend dev server runs, proxies to backend endpoints (if same origin rules apply).
-# Alternatively run `npm run build` and let Flask serve build/ files (app.py contains static serving).
+```
 
-## Usage
-1. Open the frontend.
-2. Upload an orthomosaic image (png/jpg/tif).
-3. On upload the backend will compute superpixels and return polygons.
-4. Click polygons to label them (cycles through states). Labels are saved to backend.
-5. Download labels JSON or reload stored labels.
+> 💡 The frontend dev server will launch (typically on port 3000) and automatically proxy API calls to the Flask backend.
 
-Notes:
-- For very large orthomosaics, consider tiling before segmentation.
-- This is a minimal dev implementation; for production, add auth, chunked uploads, job queue for segmentation, and object storage.
+### 3\. Usage Flow
 
+1.  Open the frontend in your browser.
+2.  Use the interface to **upload an orthomosaic image**.
+3.  The backend computes superpixels and runs the ML model to generate preliminary labels.
+4.  The frontend displays the image with the predicted, color-coded **superpixel polygons**.
+5.  Use the manual correction tools and keyboard shortcuts to refine the labels.
+6.  Click the "Export" button to download the refined mask and/or the superpixel annotation data.
 
-💜 MUST-HAVE FEATURES (turns your tool from basic → usable)
+-----
 
-These are the features you should add right away, especially since your images are large and complex.
+## 🗺️ Feature Roadmap
 
-1. Undo / Redo (super essential)
+### 💜 MUST-HAVE FEATURES (Basic → Usable)
 
-Users WILL mislabel polygons repeatedly.
+  * **1. Undo / Redo:** Implement a simple action stack for immediate correction of labeling errors.
+  * **2. Highlight Selected Polygon:** Clearly indicate the active superpixel with a distinct border upon selection.
+  * **3. Keyboard Shortcuts:** Enable fast annotation (`1, 2, 3` for class selection, `Z` for undo).
+  * **4. Sidebar Label Counts:** Display a running count for each label to track progress.
+  * **5. Mini-map (Overview):** An inset map showing the user's current zoom/pan window within the large image.
 
-Implement a simple stack:
+### 💙 NICE-TO-HAVE FEATURES (Usable → Research-Grade)
 
-const [history, setHistory] = useState([]);
-const [future, setFuture] = useState([]);
+  * **6. Brush Mode:** Allow click-and-drag painting to quickly assign a label across dozens of adjacent superpixels.
+  * **7. Multi-select Polygons:** Enable `Shift + Click` to select multiple regions and assign a label to all at once.
+  * **8. Auto-merge Visually Identical Polygons:** Implement clustering to merge adjacent, homogeneous regions automatically.
+  * **9. Layer Visibility Controls:** Add toggles to show/hide the original image, polygons, or labels.
+  * **10. Segmentation Preview Slider:** Allow users to adjust segmentation parameters (`n_segments`, `compactness`) before final computation.
 
+### 👑 GOD-TIER FEATURES (Research-Grade → Commercial-Grade)
 
-Push every labeling action to history.
-Undo pops from history → moves to future.
-Redo pops from future → re-applies.
-
-This is table stakes for annotators.
-
-2. Highlight selected polygon
-
-Right now hover works, but clicking a polygon should highlight it (thicker border).
-
-3. Keyboard Shortcuts
-
-For FAST annotation:
-
-Key	Action
-1	good
-2	moderate
-3	bad
-E	erase
-Z	undo
-Shift+Z	redo
-
-Annotators LOVE shortcuts → turns labeling from slow clicking into fast tagging.
-
-4. Sidebar showing label counts
-
-Show:
-
-Good: 54
-Moderate: 22
-Bad: 11
-Unlabeled: 98
-
-
-This helps users know when they're “done.”
-
-5. Mini-map (overview)
-
-Large images require navigation help.
-
-A tiny mini-map in the corner helps users see:
-
-where they are in the big image
-
-current zoom window
-
-click mini-map to jump
-
-This is killer for large TIFFs.
-
-💜 NICE-TO-HAVE FEATURES (turns your tool into a research-grade annotator)
-6. Brush mode (paint labels over multiple polygons)
-
-Click-and-drag to label dozens of adjacent segments quickly.
-
-Very useful when vegetation is homogeneous.
-
-7. Multi-select polygons
-
-Shift + click lets you select multiple superpixels and assign a label to all at once.
-
-8. Auto-merge visually identical polygons
-
-If adjacent polygons have similar color/texture → merge them into a larger region.
-
-Reduces annotation workload by ~40%.
-
-9. Layer visibility controls
-
-Add toggles:
-
-✔ Show/hide polygons
-✔ Show/hide labels
-✔ Show/hide image
-✔ Show only unlabelled polygons
-
-This helps reduce clutter.
-
-10. Segmentation preview slider
-
-Let users adjust:
-
-n_segments
-
-compactness
-
-…in real-time, before final segmentation.
-
-💜 GOD-TIER FEATURES (turns the project into a commercial-grade tool)
-11. AI-Assisted Auto-Labeling
-
-Not full training — just heuristics:
-
-NDVI-based vegetation detection
-
-Texture-based cluster labeling
-
-Auto-label soil regions
-
-Auto-mark boundaries
-
-Even weak heuristics save hours of work.
-
-12. Polygon refinement (split/merge)
-
-Sometimes SLIC gives bad shapes.
-Allow:
-
-Split polygon with a line
-
-Merge polygons
-
-Manually draw polygon (freehand)
-
-This turns you into CVAT-lite.
-
-13. Mask export
-
-Convert labels into:
-
-PNG masks
-
-GeoTIFF masks
-
-COCO segmentation format
-
-Shapefiles (for GIS)
-
-Numpy arrays (for ML training)
-
-This is required for ML pipelines.
-
-14. Annotation timelines (versioning)
-
-Store history of:
-
-segmentation version
-
-labeling version
-
-annotator user ID
-
-Useful if multiple people annotate same dataset.
-
-15. Multi-user collaboration
-
-Store labels in a database:
-
-user-specific labeling
-
-conflict detection (two users label same region differently)
-
-admin review mode
-
-This is enterprise-level stuff.
+  * **11. AI-Assisted Auto-Labeling:** Incorporate simple heuristics (e.g., NDVI, texture analysis) for stronger initial predictions.
+  * **12. Polygon Refinement (Split/Merge):** Enable manual editing to split an imperfect superpixel or merge adjacent ones.
+  * **13. Advanced Mask Export:** Support a variety of ML and GIS formats: **GeoTIFF masks**, **COCO segmentation format**, and **Shapefiles**.
+  * **14. Annotation Timelines (Versioning):** Store a history of labeling and segmentation versions linked to a user ID.
+  * **15. Multi-User Collaboration:** Implement a database model to support team labeling with conflict detection.
