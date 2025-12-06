@@ -123,7 +123,7 @@ cd frontend
 npm install
 
 # Start the development server
-npm start
+npm run dev
 ```
 
 > 💡 The frontend dev server will launch (typically on port 3000) and automatically proxy API calls to the Flask backend.
