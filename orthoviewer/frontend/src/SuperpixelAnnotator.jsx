@@ -2,12 +2,6 @@ import React, { useRef, useState, useEffect } from "react";
 import axios from "axios";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
-/*
- Props:
-  - imageUrl: "http://127.0.0.1:5000/uploads/<filename>"
-  - segmentsMeta: object returned by /segment (polygons, features, image_shape)
-*/
-
 const LABEL_COLORS = {
   good: "rgba(120, 255, 154, 0.45)",
   moderate: "rgba(255, 179, 71, 0.45)",
@@ -17,7 +11,11 @@ const LABEL_COLORS = {
 export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
   const [labels, setLabels] = useState({});
   const [hoverId, setHoverId] = useState(null);
-  const [currentLabel, setCurrentLabel] = useState("good"); // good | moderate | bad | erase
+  const [currentLabel, setCurrentLabel] = useState("good");
+
+
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
 
   useEffect(() => {
     async function loadLabels() {
@@ -29,11 +27,8 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
     loadLabels();
   }, [segmentsMeta.image_id]);
 
-  function applyLabel(id, label) {
-    const newLabels = { ...labels };
-    newLabels[id] = { label, ts: Date.now() };
-    setLabels(newLabels);
-
+  // Save to backend helper
+  function postLabel(id, label) {
     axios.post("http://127.0.0.1:5000/save_label", {
       image_id: segmentsMeta.image_id,
       superpixel_id: id,
@@ -42,17 +37,70 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
     });
   }
 
+  // ==== ACTION RECORDING WRAPPER ====
+  function recordAction(id, prevLabel, newLabel) {
+    setUndoStack((stack) => [...stack, { id, prevLabel, newLabel }]);
+    setRedoStack([]); // clear redo on new action
+  }
+
+  function applyLabel(id, label) {
+    const prevLabel = labels[id]?.label ?? "unlabeled";
+    const newLabel = label;
+
+    recordAction(id, prevLabel, newLabel);
+
+    const newLabels = { ...labels, [id]: { label, ts: Date.now() } };
+    setLabels(newLabels);
+    postLabel(id, label);
+  }
+
   function removeLabel(id) {
+    const prevLabel = labels[id]?.label ?? "unlabeled";
+    const newLabel = "unlabeled";
+
+    recordAction(id, prevLabel, newLabel);
+
     const newLabels = { ...labels };
     delete newLabels[id];
     setLabels(newLabels);
 
-    axios.post("http://127.0.0.1:5000/save_label", {
-      image_id: segmentsMeta.image_id,
-      superpixel_id: id,
-      label: "unlabeled",
-      user: "web_user"
-    });
+    postLabel(id, "unlabeled");
+  }
+
+  // ==== UNDO ====
+  function undo() {
+    if (undoStack.length === 0) return;
+    const action = undoStack[undoStack.length - 1];
+    const { id, prevLabel, newLabel } = action;
+
+    // Move to redo stack
+    setRedoStack((stack) => [...stack, action]);
+    setUndoStack((stack) => stack.slice(0, -1));
+
+    // Apply previous label
+    const updated = { ...labels };
+    if (prevLabel === "unlabeled") delete updated[id];
+    else updated[id] = { label: prevLabel, ts: Date.now() };
+
+    setLabels(updated);
+    postLabel(id, prevLabel);
+  }
+
+  // ==== REDO ====
+  function redo() {
+    if (redoStack.length === 0) return;
+    const action = redoStack[redoStack.length - 1];
+    const { id, prevLabel, newLabel } = action;
+
+    setUndoStack((stack) => [...stack, action]);
+    setRedoStack((stack) => stack.slice(0, -1));
+
+    const updated = { ...labels };
+    if (newLabel === "unlabeled") delete updated[id];
+    else updated[id] = { label: newLabel, ts: Date.now() };
+
+    setLabels(updated);
+    postLabel(id, newLabel);
   }
 
   function polygonPoints(polygon) {
@@ -61,7 +109,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
 
   return (
     <div style={{ position: "relative", maxWidth: "100%", background: "#000", padding: 8 }}>
-      
+
       {/* LABEL BUTTONS */}
       <div style={{ marginBottom: 12 }}>
         {["good", "moderate", "bad"].map((lbl) => (
@@ -100,26 +148,33 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
           Erase
         </button>
 
+        {/* ==== UNDO/REDO BUTTONS ==== */}
+        <button
+          onClick={undo}
+          style={{ marginLeft: 20, padding: "6px 10px" }}
+          disabled={undoStack.length === 0}
+        >
+          Undo
+        </button>
+
+        <button
+          onClick={redo}
+          style={{ marginLeft: 6, padding: "6px 10px" }}
+          disabled={redoStack.length === 0}
+        >
+          Redo
+        </button>
+
         <span style={{ marginLeft: 12, color: "#b388ff" }}>
           Selected: <strong>{currentLabel.toUpperCase()}</strong>
         </span>
       </div>
 
-      {/* ZOOM + PAN WRAPPER */}
-      <TransformWrapper
-        minScale={0.5}
-        maxScale={10}
-        wheel={{ step: 0.2 }}
-        doubleClick={{ disabled: true }}
-        pinch={{ disabled: false }}
-      >
+      {/* ZOOM + PAN */}
+      <TransformWrapper minScale={0.5} maxScale={10} wheel={{ step: 0.2 }} doubleClick={{ disabled: true }}>
         <TransformComponent>
           <div style={{ position: "relative", display: "inline-block" }}>
-            <img
-              src={imageUrl}
-              alt="orthomosaic"
-              style={{ display: "block", width: "100%", height: "auto" }}
-            />
+            <img src={imageUrl} alt="orthomosaic" style={{ display: "block", width: "100%", height: "auto" }} />
 
             <svg
               viewBox={`0 0 ${segmentsMeta.image_shape[1]} ${segmentsMeta.image_shape[0]}`}
@@ -133,7 +188,6 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
                 pointerEvents: "none",
               }}
             >
-
               {segmentsMeta.polygons.map((s) => {
                 const id = s.id;
                 const labelObj = labels[id];
@@ -187,6 +241,8 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
           onClick={async () => {
             const res = await axios.get(`http://127.0.0.1:5000/labels/${segmentsMeta.image_id}`);
             setLabels(res.data || {});
+            setUndoStack([]);
+            setRedoStack([]);
           }}
         >
           Reload labels
