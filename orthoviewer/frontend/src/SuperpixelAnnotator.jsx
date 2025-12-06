@@ -11,8 +11,11 @@ const LABEL_COLORS = {
 export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
   const [labels, setLabels] = useState({});
   const [hoverId, setHoverId] = useState(null);
-  const [currentLabel, setCurrentLabel] = useState("good");
 
+  // ⭐ NEW: track selected polygon
+  const [selectedId, setSelectedId] = useState(null);
+
+  const [currentLabel, setCurrentLabel] = useState("good");
 
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -20,27 +23,27 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
   useEffect(() => {
     async function loadLabels() {
       try {
-        const res = await axios.get(`http://127.0.0.1:5000/labels/${segmentsMeta.image_id}`);
+        const res = await axios.get(
+          `http://127.0.0.1:5000/labels/${segmentsMeta.image_id}`
+        );
         setLabels(res.data || {});
       } catch (e) {}
     }
     loadLabels();
   }, [segmentsMeta.image_id]);
 
-  // Save to backend helper
   function postLabel(id, label) {
     axios.post("http://127.0.0.1:5000/save_label", {
       image_id: segmentsMeta.image_id,
       superpixel_id: id,
       label,
-      user: "web_user"
+      user: "web_user",
     });
   }
 
-  // ==== ACTION RECORDING WRAPPER ====
   function recordAction(id, prevLabel, newLabel) {
     setUndoStack((stack) => [...stack, { id, prevLabel, newLabel }]);
-    setRedoStack([]); // clear redo on new action
+    setRedoStack([]);
   }
 
   function applyLabel(id, label) {
@@ -51,46 +54,43 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
 
     const newLabels = { ...labels, [id]: { label, ts: Date.now() } };
     setLabels(newLabels);
+    setSelectedId(id);             // ⭐ SELECT ACTIVE POLYGON
     postLabel(id, label);
   }
 
   function removeLabel(id) {
     const prevLabel = labels[id]?.label ?? "unlabeled";
-    const newLabel = "unlabeled";
 
-    recordAction(id, prevLabel, newLabel);
+    recordAction(id, prevLabel, "unlabeled");
 
     const newLabels = { ...labels };
     delete newLabels[id];
     setLabels(newLabels);
-
+    setSelectedId(id);             // ⭐ Still treat erase as “select”
     postLabel(id, "unlabeled");
   }
 
-  // ==== UNDO ====
   function undo() {
     if (undoStack.length === 0) return;
     const action = undoStack[undoStack.length - 1];
-    const { id, prevLabel, newLabel } = action;
+    const { id, prevLabel } = action;
 
-    // Move to redo stack
     setRedoStack((stack) => [...stack, action]);
     setUndoStack((stack) => stack.slice(0, -1));
 
-    // Apply previous label
     const updated = { ...labels };
     if (prevLabel === "unlabeled") delete updated[id];
     else updated[id] = { label: prevLabel, ts: Date.now() };
 
     setLabels(updated);
+    setSelectedId(id);             // ⭐ highlight action target
     postLabel(id, prevLabel);
   }
 
-  // ==== REDO ====
   function redo() {
     if (redoStack.length === 0) return;
     const action = redoStack[redoStack.length - 1];
-    const { id, prevLabel, newLabel } = action;
+    const { id, newLabel } = action;
 
     setUndoStack((stack) => [...stack, action]);
     setRedoStack((stack) => stack.slice(0, -1));
@@ -100,11 +100,12 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
     else updated[id] = { label: newLabel, ts: Date.now() };
 
     setLabels(updated);
+    setSelectedId(id);             // ⭐ highlight action target
     postLabel(id, newLabel);
   }
 
-  function polygonPoints(polygon) {
-    return polygon.map((p) => p.join(",")).join(" ");
+  function polygonPoints(poly) {
+    return poly.map((p) => p.join(",")).join(" ");
   }
 
   return (
@@ -122,7 +123,9 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
               borderRadius: "6px",
               cursor: "pointer",
               background: currentLabel === lbl
-                ? (lbl === "good" ? "#78ff9a" : lbl === "moderate" ? "#ffb347" : "#ff6363")
+                ? (lbl === "good" ? "#78ff9a"
+                  : lbl === "moderate" ? "#ffb347"
+                  : "#ff6363")
                 : "#222",
               color: currentLabel === lbl ? "#000" : "#ddd",
               border: "1px solid #444",
@@ -132,7 +135,6 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
           </button>
         ))}
 
-        {/* ERASE TOOL */}
         <button
           onClick={() => setCurrentLabel("erase")}
           style={{
@@ -148,20 +150,11 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
           Erase
         </button>
 
-        {/* ==== UNDO/REDO BUTTONS ==== */}
-        <button
-          onClick={undo}
-          style={{ marginLeft: 20, padding: "6px 10px" }}
-          disabled={undoStack.length === 0}
-        >
+        <button onClick={undo} style={{ marginLeft: 20, padding: "6px 10px" }} disabled={undoStack.length === 0}>
           Undo
         </button>
 
-        <button
-          onClick={redo}
-          style={{ marginLeft: 6, padding: "6px 10px" }}
-          disabled={redoStack.length === 0}
-        >
+        <button onClick={redo} style={{ marginLeft: 6, padding: "6px 10px" }} disabled={redoStack.length === 0}>
           Redo
         </button>
 
@@ -170,11 +163,11 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
         </span>
       </div>
 
-      {/* ZOOM + PAN */}
+      {/* ================= ZOOM/PAN ================= */}
       <TransformWrapper minScale={0.5} maxScale={10} wheel={{ step: 0.2 }} doubleClick={{ disabled: true }}>
         <TransformComponent>
           <div style={{ position: "relative", display: "inline-block" }}>
-            <img src={imageUrl} alt="orthomosaic" style={{ display: "block", width: "100%", height: "auto" }} />
+            <img src={imageUrl} style={{ display: "block", width: "100%" }} />
 
             <svg
               viewBox={`0 0 ${segmentsMeta.image_shape[1]} ${segmentsMeta.image_shape[0]}`}
@@ -191,8 +184,20 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
               {segmentsMeta.polygons.map((s) => {
                 const id = s.id;
                 const labelObj = labels[id];
+
                 const fill = labelObj ? LABEL_COLORS[labelObj.label] : "rgba(0,0,0,0)";
-                const stroke = hoverId === id ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.3)";
+
+                // ⭐ Highlight logic
+                const isSelected = id === selectedId;
+                const isHovered = id === hoverId;
+
+                const stroke = isSelected
+                  ? "yellow"                 // main highlight color
+                  : isHovered
+                  ? "rgba(255,255,255,0.7)"
+                  : "rgba(0,0,0,0.3)";
+
+                const strokeWidth = isSelected ? 2 : 0.7;
 
                 return (
                   <polygon
@@ -200,10 +205,11 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
                     points={polygonPoints(s.polygon)}
                     fill={fill}
                     stroke={stroke}
-                    strokeWidth={0.7}
+                    strokeWidth={strokeWidth}
                     style={{ cursor: "pointer", pointerEvents: "all" }}
                     onClick={(e) => {
                       e.stopPropagation();
+                      setSelectedId(id);   // ⭐ update selected
                       if (currentLabel === "erase") removeLabel(id);
                       else applyLabel(id, currentLabel);
                     }}
@@ -220,7 +226,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
       {/* DOWNLOAD + RELOAD */}
       <div style={{ marginTop: 12 }}>
         <button
-          onClick={async () => {
+          onClick={() => {
             const payload = { image_id: segmentsMeta.image_id, labels };
             const blob = new Blob([JSON.stringify(payload, null, 2)], {
               type: "application/json"
@@ -239,10 +245,13 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
         <button
           style={{ marginLeft: 8 }}
           onClick={async () => {
-            const res = await axios.get(`http://127.0.0.1:5000/labels/${segmentsMeta.image_id}`);
+            const res = await axios.get(
+              `http://127.0.0.1:5000/labels/${segmentsMeta.image_id}`
+            );
             setLabels(res.data || {});
             setUndoStack([]);
             setRedoStack([]);
+            setSelectedId(null);   // reset highlight
           }}
         >
           Reload labels
