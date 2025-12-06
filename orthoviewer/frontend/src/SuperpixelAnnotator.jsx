@@ -12,7 +12,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
   const [labels, setLabels] = useState({});
   const [hoverId, setHoverId] = useState(null);
 
-  // ⭐ NEW: track selected polygon
+
   const [selectedId, setSelectedId] = useState(null);
 
   const [currentLabel, setCurrentLabel] = useState("good");
@@ -31,6 +31,44 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
     }
     loadLabels();
   }, [segmentsMeta.image_id]);
+
+
+
+  useEffect(() => {
+    const handleKey = (e) => {
+      // Prevent shortcuts when typing in an input box
+      if (["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+
+      switch (e.key.toLowerCase()) {
+        case "1":
+          setCurrentLabel("good");
+          break;
+        case "2":
+          setCurrentLabel("moderate");
+          break;
+        case "3":
+          setCurrentLabel("bad");
+          break;
+        case "e":
+          setCurrentLabel("erase");
+          break;
+        case "z":
+          if (e.shiftKey) redo();  // Shift + Z → redo
+          else undo();             // Z → undo
+          break;
+        case "y":                  // Y → redo
+          redo();
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [undoStack, redoStack]);
+
+
 
   function postLabel(id, label) {
     axios.post("http://127.0.0.1:5000/save_label", {
@@ -54,7 +92,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
 
     const newLabels = { ...labels, [id]: { label, ts: Date.now() } };
     setLabels(newLabels);
-    setSelectedId(id);             // ⭐ SELECT ACTIVE POLYGON
+    setSelectedId(id);
     postLabel(id, label);
   }
 
@@ -66,7 +104,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
     const newLabels = { ...labels };
     delete newLabels[id];
     setLabels(newLabels);
-    setSelectedId(id);             // ⭐ Still treat erase as “select”
+    setSelectedId(id);
     postLabel(id, "unlabeled");
   }
 
@@ -83,7 +121,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
     else updated[id] = { label: prevLabel, ts: Date.now() };
 
     setLabels(updated);
-    setSelectedId(id);             // ⭐ highlight action target
+    setSelectedId(id);
     postLabel(id, prevLabel);
   }
 
@@ -100,7 +138,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
     else updated[id] = { label: newLabel, ts: Date.now() };
 
     setLabels(updated);
-    setSelectedId(id);             // ⭐ highlight action target
+    setSelectedId(id);
     postLabel(id, newLabel);
   }
 
@@ -187,12 +225,11 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
 
                 const fill = labelObj ? LABEL_COLORS[labelObj.label] : "rgba(0,0,0,0)";
 
-                // ⭐ Highlight logic
                 const isSelected = id === selectedId;
                 const isHovered = id === hoverId;
 
                 const stroke = isSelected
-                  ? "yellow"                 // main highlight color
+                  ? "yellow"
                   : isHovered
                   ? "rgba(255,255,255,0.7)"
                   : "rgba(0,0,0,0.3)";
@@ -209,7 +246,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
                     style={{ cursor: "pointer", pointerEvents: "all" }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedId(id);   // ⭐ update selected
+                      setSelectedId(id);
                       if (currentLabel === "erase") removeLabel(id);
                       else applyLabel(id, currentLabel);
                     }}
@@ -251,7 +288,7 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
             setLabels(res.data || {});
             setUndoStack([]);
             setRedoStack([]);
-            setSelectedId(null);   // reset highlight
+            setSelectedId(null);
           }}
         >
           Reload labels
