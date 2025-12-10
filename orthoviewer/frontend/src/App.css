@@ -1,0 +1,401 @@
+/* ======================================
+   GLOBAL APP LAYOUT
+====================================== */
+body {
+  margin: 0;
+  padding: 0;
+  background: #0f0f14;
+  font-family: "Inter", sans-serif;
+  color: #eaeaea;
+}
+
+.app {
+  max-width: 1350px;
+  margin: auto;
+  padding: 22px;
+}
+
+.app-title {
+  text-align: center;
+  font-size: 2.6rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #d7c4ff;
+}
+
+.app-subtitle {
+  text-align: center;
+  font-size: 1rem;
+  opacity: 0.7;
+  margin-bottom: 32px;
+}
+
+/* ======================================
+   TOP CONTROL PANEL
+====================================== */
+.top-controls {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 26px;
+  margin-bottom: 40px;
+}
+
+.control-card {
+  background: #1d1c22;
+  padding: 20px;
+  border-radius: 14px;
+  border: 1px solid #34323d;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.control-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #cbb5ff;
+  margin-bottom: 6px;
+}
+
+/* Uniform row layout */
+.field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.field-label {
+  flex: 0 0 110px;
+  font-size: 0.95rem;
+  color: #d1c9e8;
+}
+
+.field-input {
+  flex: 1;
+  padding: 10px;
+  background: #2a2932;
+  border: 1px solid #3d3c47;
+  border-radius: 8px;
+  color: #e6e6e6;
+  outline: none;
+  transition: 0.2s;
+}
+
+.field-input:focus {
+  border-color: #8f6bff;
+}
+
+/* Buttons */
+button {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-weight: 600;
+  border: none;
+  background: linear-gradient(135deg, #7c4dff, #9d7bff);
+  color: white;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+button.secondary {
+  background: #2e2c36;
+  border: 1px solid #47465a;
+  color: #dadada;
+}
+
+/* Load card stacked layout */
+.load-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ======================================
+   RESPONSIVE BEHAVIOR
+====================================== */
+@media (max-width: 950px) {
+  .top-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .field-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .field-label {
+    width: 100%;
+  }
+}
+
+.empty-state {
+  text-align: center;
+  opacity: 0.75;
+  margin-top: 35px;
+  font-size: 1rem;
+}
+/* ======================================
+   ANNOTATOR LAYOUT
+====================================== */
+.annotator-layout {
+  display: flex;
+  gap: 22px;
+  width: 100%;
+  margin-top: 18px;
+}
+
+/* ======================================
+   SIDEBAR
+====================================== */
+.annotator-sidebar {
+  width: 240px;
+  padding: 16px;
+  background: #18181f;
+  border-radius: 14px;
+  border: 1px solid #34323d;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+
+.annotator-sidebar h3 {
+  margin: 0 0 14px 0;
+  color: #cbb5ff;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+/* Label Buttons (GOOD, MODERATE, BAD) */
+.label-box {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #27272f;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: 0.15s ease;
+  border: 1px solid transparent;
+  font-weight: 500;
+}
+
+/* Per-label fixed colors */
+.label-green {
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.label-yellow {
+  border-color: #ffee58;
+  color: #ffee58;
+}
+
+.label-others {
+  border-color: #795548;
+  color: #795548;
+}
+
+.label-box:hover {
+  filter: brightness(1.15);
+}
+
+.label-box.active {
+  background: #8f6bff !important;
+  color: black;
+  font-weight: 700;
+  border-color: #bba3ff;
+}
+
+/* ERASE button */
+.label-erase {
+  padding: 10px 14px;
+  text-align: center;
+  background: #3a3a45;
+  border-radius: 10px;
+  border-color: gainsboro;
+  cursor: pointer;
+  font-size: 0.95rem;
+  margin-top: 8px;
+  transition: 0.15s;
+}
+
+.label-erase:hover {
+  background: #4a4a56;
+}
+
+.label-erase.active {
+  background: #ff4e4e !important;
+  color: white;
+}
+
+/* Sidebar export button */
+.side-btn {
+  width: 100%;
+  padding: 12px;
+  margin-top: 16px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #7c4dff, #9d7bff);
+  border: none;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(124, 77, 255, 0.25);
+  transition: 0.15s;
+}
+
+.side-btn:hover {
+  opacity: 0.85;
+}
+
+/* ======================================
+   MAIN CANVAS AREA
+====================================== */
+.annotator-main {
+  flex: 1;
+  background: #111117;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #34323d;
+  position: relative;
+  overflow: visible;
+}
+
+.img-container {
+  width: 100%;
+  overflow: hidden;
+  background: black;
+  border-radius: 12px;
+  max-height: 78vh;
+  position: relative;
+}
+
+.annotator-img {
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+.annotator-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;      /* Lifts colors ABOVE the image */
+  pointer-events: auto;
+  top: 0;
+  left: 0;
+  z-index: 10;   /* Raise above the image */
+}
+/* Prevent polygons from defaulting to BLACK fill */
+.annotator-svg polygon {
+  transition: fill 0.15s, stroke 0.15s, opacity 0.15s;
+  pointer-events: all;
+  fill-opacity: 1 !important;
+}
+
+
+/* ======================================
+   ZOOM TOOLBAR (SMALL BUTTONS!)
+====================================== */
+.zoom-tools {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+}
+
+.zoom-tools button {
+  width: 60px;
+  height: 38px;
+  border-radius: 8px;
+  background: #7c4dff;
+  color: white;
+  border: none;
+  font-size: 17px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.15s ease;
+  box-shadow: 0 3px 12px rgba(124,77,255,0.35);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.zoom-tools button:hover {
+  filter: brightness(1.12);
+}
+
+.zoom-tools button:active {
+  transform: scale(0.92);
+}
+
+/* RESET button smaller + different color */
+.zoom-tools button:nth-child(3) {
+  background: #2e2e38;
+  border: 1px solid #5a5a6a;
+  font-size: 13px;
+  font-weight: 500;
+}
+.zoom-slider {
+  -webkit-appearance: none;
+  width: 140px;
+  height: 6px;
+  background: #444;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+  margin: 6px 0;
+}
+
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #9d7bff;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(157, 123, 255, 0.7);
+}
+
+.zoom-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #9d7bff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+
+/* ======================================
+   RESPONSIVE ADJUSTMENTS
+====================================== */
+@media (max-width: 900px) {
+  .annotator-layout {
+    flex-direction: column;
+  }
+
+  .annotator-sidebar {
+    width: 100%;
+  }
+
+  .zoom-controls {
+    right: 14px;
+    top: 14px;
+  }
+
+  .img-container {
+    max-height: 65vh;
+  }
+}

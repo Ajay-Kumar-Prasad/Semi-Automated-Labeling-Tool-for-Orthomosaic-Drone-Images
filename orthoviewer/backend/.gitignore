@@ -1,0 +1,9 @@
+backend/data/
+.DS_Store
+myvenv/
+__pycache__/
+uploads/
+segments/
+labels/
+patches/
+/backend/orthoenv/
