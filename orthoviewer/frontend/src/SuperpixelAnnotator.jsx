@@ -9,54 +9,101 @@ const LABEL_COLORS = {
   others: "rgba(79, 40, 2, 0.45)",
 };
 
+const BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
+
 export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
   const [zoom, setZoom] = useState(1);
   const [labels, setLabels] = useState({});
   const [hoverId, setHoverId] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [currentLabel, setCurrentLabel] = useState("green");
+  const [saving, setSaving] = useState(false);
 
   const wrapperRef = useRef(null);
   const imgRef = useRef(null);
+  const saveTimer = useRef(null);
 
-  const segH = segmentsMeta.seg_shape?.[0] ?? segmentsMeta.image_shape?.[0];
-  const segW = segmentsMeta.seg_shape?.[1] ?? segmentsMeta.image_shape?.[1];
+  const segH = segmentsMeta.seg_shape?.[0];
+  const segW = segmentsMeta.seg_shape?.[1];
 
-  /* LOAD EXISTING LABELS */
+  /* -------------------------------------------------------
+     LOAD EXISTING LABELS
+  ------------------------------------------------------- */
   useEffect(() => {
+    let alive = true;
+
     axios
-      .get(`http://127.0.0.1:5000/labels/${segmentsMeta.image_id}`)
-      .then((res) => setLabels(res.data || {}))
-      .catch(() => {});
+      .get(`${BASE}/labels/${segmentsMeta.image_id}`)
+      .then((res) => {
+        if (alive) setLabels(res.data || {});
+      })
+      .catch(() => {
+        if (alive) setLabels({});
+      });
+
+    return () => {
+      alive = false;
+    };
   }, [segmentsMeta.image_id]);
 
-  /* SAVE LABEL */
-  function postLabel(id, label) {
-    axios.post("http://127.0.0.1:5000/save_label", {
-      image_id: segmentsMeta.image_id,
-      superpixel_id: id,
-      label,
-      user: "web_user",
-    });
+  /* -------------------------------------------------------
+     DEBOUNCED SAVE (SAFE)
+  ------------------------------------------------------- */
+  function postLabel(spid, label) {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+    }
+
+    saveTimer.current = setTimeout(async () => {
+      try {
+        setSaving(true);
+        await axios.post(`${BASE}/save_label`, {
+          image_id: segmentsMeta.image_id,
+          superpixel_id: spid,
+          label,
+          user: "web_user",
+        });
+      } catch (err) {
+        console.error("Save failed:", err);
+        alert("Label save failed. Please retry.");
+      } finally {
+        setSaving(false);
+      }
+    }, 150);
   }
 
   function applyLabel(id, label) {
-    const updated = { ...labels, [id]: { label, ts: Date.now() } };
-    setLabels(updated);
-    setSelectedId(id);
-    postLabel(id, label);
+    const sid = String(id);
+
+    setLabels((prev) => ({
+      ...prev,
+      [sid]: {
+        ...(prev[sid] || {}),
+        label,
+        ts: Date.now(),
+        user: "web_user",
+      },
+    }));
+
+    setSelectedId(sid);
+    postLabel(sid, label);
   }
 
   function removeLabel(id) {
-    const updated = { ...labels };
-    delete updated[id];
-    setLabels(updated);
-    setSelectedId(id);
-    postLabel(id, "unlabeled");
+    const sid = String(id);
+
+    setLabels((prev) => {
+      const copy = { ...prev };
+      delete copy[sid];
+      return copy;
+    });
+
+    setSelectedId(sid);
+    postLabel(sid, "unlabeled");
   }
 
   function polygonPoints(poly) {
-    return poly.map((p) => p.join(",")).join(" ");
+    return poly.map((p) => `${p[0]},${p[1]}`).join(" ");
   }
 
   const counts = {
@@ -65,38 +112,34 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
     others: Object.values(labels).filter((x) => x.label === "others").length,
   };
 
-  /* AUTO-FIT IMAGE */
+  /* -------------------------------------------------------
+     AUTO-FIT IMAGE (PREVIEW SAFE)
+  ------------------------------------------------------- */
   useEffect(() => {
     if (!imgRef.current || !wrapperRef.current) return;
 
-    setTimeout(() => {
-      const imgWidth = imgRef.current.naturalWidth;
-      const imgHeight = imgRef.current.naturalHeight;
+    const timer = setTimeout(() => {
+      const imgW = imgRef.current.naturalWidth;
+      const imgH = imgRef.current.naturalHeight;
 
       const container = imgRef.current.closest(".annotator-main");
       if (!container) return;
 
       const scale = Math.min(
-        container.clientWidth / imgWidth,
-        container.clientHeight / imgHeight
+        container.clientWidth / imgW,
+        container.clientHeight / imgH
       );
 
       wrapperRef.current.setTransform(0, 0, scale);
       setZoom(scale);
     }, 150);
+
+    return () => clearTimeout(timer);
   }, [imageUrl]);
 
-  /* FIXED handleZoom — INSIDE component */
-  function handleZoom(value) {
-    const newZoom = parseFloat(value);
-    setZoom(newZoom);
-
-    if (wrapperRef.current) {
-      const state = wrapperRef.current.state;
-      wrapperRef.current.setTransform(state.positionX, state.positionY, newZoom);
-    }
-  }
-
+  /* -------------------------------------------------------
+     RENDER
+  ------------------------------------------------------- */
   return (
     <div className="annotator-layout">
       {/* SIDEBAR */}
@@ -127,9 +170,16 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
 
         <button
           className="side-btn"
+          disabled={saving}
           onClick={() => {
             const blob = new Blob(
-              [JSON.stringify({ image_id: segmentsMeta.image_id, labels }, null, 2)],
+              [
+                JSON.stringify(
+                  { image_id: segmentsMeta.image_id, labels },
+                  null,
+                  2
+                ),
+              ],
               { type: "application/json" }
             );
             const url = URL.createObjectURL(blob);
@@ -146,31 +196,6 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
 
       {/* MAIN VIEWER */}
       <div className="annotator-main">
-        <div className="zoom-tools">
-          <button onClick={() => wrapperRef.current.zoomIn()}>+</button>
-
-          <input
-            type="range"
-            min="0.1"
-            max="10"
-            step="0.1"
-            value={zoom}
-            onChange={(e) => handleZoom(e.target.value)}
-            className="zoom-slider"
-          />
-
-          <button onClick={() => wrapperRef.current.zoomOut()}>-</button>
-
-          <button
-            onClick={() => {
-              wrapperRef.current.resetTransform();
-              setZoom(1);
-            }}
-          >
-            Reset
-          </button>
-        </div>
-
         <TransformWrapper
           ref={wrapperRef}
           minScale={0.1}
@@ -180,7 +205,12 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
         >
           <TransformComponent>
             <div className="img-container">
-              <img ref={imgRef} src={imageUrl} className="annotator-img" />
+              <img
+                ref={imgRef}
+                src={imageUrl}
+                className="annotator-img"
+                draggable={false}
+              />
 
               <svg
                 className="annotator-svg"
@@ -188,29 +218,29 @@ export default function SuperpixelAnnotator({ imageUrl, segmentsMeta }) {
                 preserveAspectRatio="xMidYMid meet"
               >
                 {segmentsMeta.polygons.map((s) => {
-                  const id = s.id;
-                  const labelName = labels[id]?.label;
+                  const sid = String(s.id);
+                  const labelName = labels[sid]?.label;
 
                   return (
                     <polygon
-                      key={id}
+                      key={sid}
                       points={polygonPoints(s.polygon)}
-                      fill={LABEL_COLORS[labelName] || "rgba(0,0,0,0)"}
+                      fill={LABEL_COLORS[labelName] || "transparent"}
                       stroke={
-                        selectedId === id
+                        selectedId === sid
                           ? "yellow"
-                          : hoverId === id
+                          : hoverId === sid
                           ? "white"
                           : "rgba(255,255,255,0.25)"
                       }
-                      strokeWidth={selectedId === id ? 2 : 0.6}
-                      onMouseEnter={() => setHoverId(id)}
+                      strokeWidth={selectedId === sid ? 2 : 0.6}
+                      onMouseEnter={() => setHoverId(sid)}
                       onMouseLeave={() => setHoverId(null)}
                       onClick={(e) => {
                         e.stopPropagation();
                         currentLabel === "erase"
-                          ? removeLabel(id)
-                          : applyLabel(id, currentLabel);
+                          ? removeLabel(sid)
+                          : applyLabel(sid, currentLabel);
                       }}
                     />
                   );

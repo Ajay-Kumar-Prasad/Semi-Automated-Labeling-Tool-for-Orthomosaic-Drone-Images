@@ -5,16 +5,16 @@ from skimage.color import rgb2lab
 
 
 # -------------------------------------------------------------------
-# CLOCKWISE SORT – STABLE FOR POLYGONS WITH REPEATED OR NEARLY COLLINEAR POINTS
+# CLOCKWISE SORT – ROBUST AGAINST DEGENERATE POLYGONS
 # -------------------------------------------------------------------
 def sort_polygon_clockwise(points):
-    """
-    Sort polygon corner points clockwise around centroid.
-    Ensures stable SVG rendering at all zoom levels.
-    """
     pts = np.array(points, dtype=np.float32)
 
     if pts.shape[0] <= 2:
+        return pts.tolist()
+
+    # Degenerate polygon guard
+    if np.abs(cv2.contourArea(pts.reshape(-1, 1, 2))) < 1e-2:
         return pts.tolist()
 
     cx, cy = pts[:, 0].mean(), pts[:, 1].mean()
@@ -25,21 +25,9 @@ def sort_polygon_clockwise(points):
 
 
 # -------------------------------------------------------------------
-# SLIC SUPERPIXELS → CLEAN, SIMPLIFIED POLYGONS FOR FRONTEND
+# SLIC SUPERPIXELS → POLYGONS
 # -------------------------------------------------------------------
 def segments_to_polygons(segments):
-    """
-    Convert segmentation array → polygon boundaries for React SVG rendering.
-
-    Returns:
-        polygons = [
-            { "id": int, "polygon": [[x,y], [x,y], ...] },
-            ...
-        ]
-
-        meta = { "labels_found": int }
-    """
-
     segments = segments.astype(np.int32)
     max_id = int(segments.max())
 
@@ -47,12 +35,10 @@ def segments_to_polygons(segments):
     meta = {"labels_found": max_id}
 
     for sid in range(1, max_id + 1):
-
         mask = (segments == sid).astype(np.uint8)
         if mask.sum() == 0:
             continue
 
-        # Find external contour (superpixel boundary)
         contours, _ = cv2.findContours(
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -65,12 +51,15 @@ def segments_to_polygons(segments):
         if contour.shape[0] < 4:
             continue
 
-        # Polygon simplification (ε scales with perimeter)
-        epsilon = 0.008 * cv2.arcLength(contour, True)
+        # Robust epsilon (avoid collapse)
+        peri = cv2.arcLength(contour, True)
+        epsilon = max(1.5, 0.008 * peri)
+
         approx = cv2.approxPolyDP(contour, epsilon, True)
+        if approx.shape[0] < 3:
+            continue
 
         pts = [[int(x), int(y)] for [[x, y]] in approx]
-
         pts = sort_polygon_clockwise(pts)
 
         polygons.append({
@@ -82,52 +71,43 @@ def segments_to_polygons(segments):
 
 
 # -------------------------------------------------------------------
-# SUPERPIXEL FEATURE EXTRACTION – ML READY FEATURES
+# SUPERPIXEL FEATURES
 # -------------------------------------------------------------------
 def compute_superpixel_features(img, segments):
     """
-    Extract interpretable, ML-useful features per superpixel:
-        • centroid (x, y)
-        • area (px count)
-        • mean Lab color (perceptually uniform)
-    
-    Returns:
-        { sid: {
-              "centroid": [x, y],
-              "area": int,
-              "lab_mean": [L, a, b]
-        } }
+    NOTE:
+    All spatial features (centroid) are in SEGMENTED IMAGE SPACE.
+    Color features are scale invariant.
     """
 
-    # -------------------------------------------------------------------
-    # Ensure RGB uint8 for Lab conversion
-    # -------------------------------------------------------------------
-    if img.dtype != np.uint8:
-        img_uint8 = (img * 255).astype(np.uint8)
+    # Normalize image safely for Lab
+    if img.dtype == np.uint8:
+        img_norm = img.astype(np.float32) / 255.0
     else:
-        img_uint8 = img
+        img_norm = img.astype(np.float32)
+        if img_norm.max() > 1.0:
+            img_norm /= 255.0
 
-    # Convert once → avoid recomputing Lab for each region
-    lab = rgb2lab(img_uint8)
+    lab = rgb2lab(img_norm)
 
     props = regionprops(segments.astype(np.int32))
     features = {}
 
     for region in props:
         sid = int(region.label)
-
         cy, cx = region.centroid
         area = int(region.area)
 
         mask = (segments == sid)
 
-        if area == 0:
-            lab_mean = [0.0, 0.0, 0.0]
+        if area > 0:
+            lab_mean = [
+                float(lab[..., 0][mask].mean()),
+                float(lab[..., 1][mask].mean()),
+                float(lab[..., 2][mask].mean())
+            ]
         else:
-            L = float(lab[..., 0][mask].mean())
-            a = float(lab[..., 1][mask].mean())
-            b = float(lab[..., 2][mask].mean())
-            lab_mean = [L, a, b]
+            lab_mean = [0.0, 0.0, 0.0]
 
         features[sid] = {
             "centroid": [float(cx), float(cy)],

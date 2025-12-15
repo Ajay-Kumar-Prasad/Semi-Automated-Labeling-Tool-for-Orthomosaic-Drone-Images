@@ -267,10 +267,9 @@ button.secondary {
 
 .img-container {
   width: 100%;
-  overflow: hidden;
+  overflow: auto;
   background: black;
   border-radius: 12px;
-  max-height: 78vh;
   position: relative;
 }
 
@@ -294,6 +293,7 @@ button.secondary {
   top: 0;
   left: 0;
   z-index: 10;   /* Raise above the image */
+  transform-origin: top left;
 }
 /* Prevent polygons from defaulting to BLACK fill */
 .annotator-svg polygon {

@@ -2,6 +2,7 @@ import os
 import uuid
 import json
 import time
+from threading import Lock
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from skimage import io
@@ -12,6 +13,8 @@ from PIL import Image
 from helpers import segments_to_polygons, compute_superpixel_features
 from flask_cors import CORS
 
+Image.MAX_IMAGE_PIXELS = None
+
 # -------------------------------------------------------------------
 # CONFIG
 # -------------------------------------------------------------------
@@ -19,7 +22,9 @@ UPLOAD_FOLDER = "uploads"
 SEG_FOLDER = "segments"
 LABEL_FOLDER = "labels"
 PATCH_FOLDER = "patches"
+
 ALLOWED = {"png", "jpg", "jpeg", "tif", "tiff"}
+PREVIEW_MAX_DIM = 4096   # browser-safe
 
 for f in [UPLOAD_FOLDER, SEG_FOLDER, LABEL_FOLDER, PATCH_FOLDER]:
     os.makedirs(f, exist_ok=True)
@@ -27,13 +32,14 @@ for f in [UPLOAD_FOLDER, SEG_FOLDER, LABEL_FOLDER, PATCH_FOLDER]:
 app = Flask(__name__, static_folder="../frontend/build", static_url_path="/")
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+label_lock = Lock()
 
 def allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED
 
 
 # -------------------------------------------------------------------
-# HEALTH CHECK
+# HEALTH
 # -------------------------------------------------------------------
 @app.route("/health")
 def health():
@@ -41,7 +47,7 @@ def health():
 
 
 # -------------------------------------------------------------------
-# UPLOAD + TIFF FIX
+# UPLOAD (SAFE PREVIEW GENERATION)
 # -------------------------------------------------------------------
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -55,34 +61,32 @@ def upload():
     if not allowed(file.filename):
         return jsonify({"error": "bad extension"}), 400
 
-    filename = secure_filename(file.filename)
     image_id = str(uuid.uuid4())
+    filename = secure_filename(file.filename)
     base, ext = os.path.splitext(filename)
 
-    # always store original
-    stored_name = f"{image_id}_{base}{ext}"
-    stored_path = os.path.join(UPLOAD_FOLDER, stored_name)
-    file.save(stored_path)
+    # Save original (TIFF kept untouched)
+    orig_name = f"{image_id}_orig{ext}"
+    orig_path = os.path.join(UPLOAD_FOLDER, orig_name)
+    file.save(orig_path)
 
-    # Convert TIFF → PNG cleanly
-    if ext.lower() in [".tif", ".tiff"]:
-        png_name = f"{image_id}_{base}.png"
-        png_path = os.path.join(UPLOAD_FOLDER, png_name)
-        try:
-            Image.open(stored_path).save(png_path)
-            stored_name = png_name
-            stored_path = png_path
-        except Exception as e:
-            print("TIFF conversion failed:", e)
+    # Generate preview image
+    preview_name = f"{image_id}_preview.png"
+    preview_path = os.path.join(UPLOAD_FOLDER, preview_name)
+
+    with Image.open(orig_path) as img:
+        img = img.convert("RGB")
+        img.thumbnail((PREVIEW_MAX_DIM, PREVIEW_MAX_DIM), Image.LANCZOS)
+        img.save(preview_path)
 
     return jsonify({
         "image_id": image_id,
-        "filename": stored_name
+        "filename": preview_name
     })
 
 
 # -------------------------------------------------------------------
-# SEGMENT IMAGE (uses scaled image for SLIC)
+# SEGMENT (ON PREVIEW IMAGE)
 # -------------------------------------------------------------------
 @app.route("/segment", methods=["POST"])
 def segment():
@@ -99,31 +103,16 @@ def segment():
     n_segments = int(data.get("n_segments", 800))
     compactness = float(data.get("compactness", 10))
 
-    # load original
     img = io.imread(path)
     if img.ndim == 2:
         img = np.stack([img] * 3, axis=-1)
     if img.shape[-1] > 3:
         img = img[..., :3]
 
-    orig_h, orig_w = img.shape[:2]
-    scale = 1.0
+    h, w = img.shape[:2]
 
-    # Resize if too large
-    MAX_DIM = 3000
-    max_dim = max(orig_h, orig_w)
-    if max_dim > MAX_DIM:
-        scale = MAX_DIM / max_dim
-        new_w = int(orig_w * scale)
-        new_h = int(orig_h * scale)
-        img_small = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-    else:
-        img_small = img.copy()
+    img_float = img.astype(np.float32) / 255.0
 
-    seg_h, seg_w = img_small.shape[:2]
-    img_float = img_small.astype(np.float32) / 255.0
-
-    # SLIC Superpixels
     segments = slic(
         img_float,
         n_segments=n_segments,
@@ -132,39 +121,37 @@ def segment():
         start_label=1
     )
 
-    polygons, meta = segments_to_polygons(segments)
-    features = compute_superpixel_features(img_small, segments)
+    polygons, _ = segments_to_polygons(segments)
+    features = compute_superpixel_features(img, segments)
 
     image_id = image_filename.split("_")[0]
 
-    out = {
+    meta = {
         "image_id": image_id,
         "image_filename": image_filename,
-        "orig_shape": [orig_h, orig_w, 3],
-        "seg_shape": [seg_h, seg_w, 3],
-        "scale": scale,
+        "orig_shape": [h, w, 3],
+        "seg_shape": [h, w, 3],
+        "scale": 1.0,
         "n_segments": int(segments.max()),
         "polygons": polygons,
         "features": features
     }
 
-    # Save segmentation
-    json.dump(out, open(os.path.join(SEG_FOLDER, f"{image_id}_segments.json"), "w"), indent=2)
+    with open(os.path.join(SEG_FOLDER, f"{image_id}_segments.json"), "w") as f:
+        json.dump(meta, f, indent=2)
+
     np.save(os.path.join(SEG_FOLDER, f"{image_id}_segments.npy"), segments)
 
-    # preview for UI
-    preview_rgb = cv2.cvtColor(img_small, cv2.COLOR_RGB2BGR)
-    cv2.imwrite(os.path.join(SEG_FOLDER, f"{image_id}_preview.png"), preview_rgb)
-
-    return jsonify(out)
+    return jsonify(meta)
 
 
 # -------------------------------------------------------------------
-# SAVE LABEL + HIGH-RES PATCH
+# SAVE LABEL (PATCHES FROM ORIGINAL TIFF)
 # -------------------------------------------------------------------
 @app.route("/save_label", methods=["POST"])
 def save_label():
     data = request.json or {}
+
     image_id = data.get("image_id")
     label = data.get("label")
     spid = data.get("superpixel_id")
@@ -177,35 +164,42 @@ def save_label():
 
     seg_path = os.path.join(SEG_FOLDER, f"{image_id}_segments.npy")
     meta_path = os.path.join(SEG_FOLDER, f"{image_id}_segments.json")
+    label_file = os.path.join(LABEL_FOLDER, f"{image_id}_labels.json")
 
     if not os.path.exists(seg_path):
         return jsonify({"error": "segments missing"}), 500
 
     segments = np.load(seg_path)
-    meta = json.load(open(meta_path))
 
-    # load original image
-    orig_path = os.path.join(UPLOAD_FOLDER, meta["image_filename"])
-    orig = io.imread(orig_path)
+    with open(meta_path, "r") as f:
+        meta = json.load(f)
+
+    # Load ORIGINAL TIFF
+    orig_tif = next(
+        f for f in os.listdir(UPLOAD_FOLDER)
+        if f.startswith(image_id + "_orig")
+    )
+    orig = io.imread(os.path.join(UPLOAD_FOLDER, orig_tif))
     if orig.ndim == 2:
         orig = np.stack([orig] * 3, axis=-1)
     if orig.shape[-1] > 3:
         orig = orig[..., :3]
 
-    scale = meta["scale"]
-
-    # Extract mask
-    mask = (segments == spid)
+    mask = segments == spid
     ys, xs = np.where(mask)
-
     if len(xs) == 0:
         return jsonify({"error": "superpixel not found"}), 400
 
-    # Scaled bounding box → original resolution
-    xmin = int(xs.min() / scale)
-    xmax = int(xs.max() / scale)
-    ymin = int(ys.min() / scale)
-    ymax = int(ys.max() / scale)
+    xmin, xmax = xs.min(), xs.max()
+    ymin, ymax = ys.min(), ys.max()
+
+    scale_x = orig.shape[1] / meta["seg_shape"][1]
+    scale_y = orig.shape[0] / meta["seg_shape"][0]
+
+    xmin = int(xmin * scale_x)
+    xmax = int(xmax * scale_x)
+    ymin = int(ymin * scale_y)
+    ymax = int(ymax * scale_y)
 
     pad = 8
     xmin = max(0, xmin - pad)
@@ -213,45 +207,38 @@ def save_label():
     xmax = min(orig.shape[1] - 1, xmax + pad)
     ymax = min(orig.shape[0] - 1, ymax + pad)
 
-    patch = orig[ymin:ymax+1, xmin:xmax+1]
+    patch = orig[ymin:ymax + 1, xmin:xmax + 1]
 
-    # Load label JSON
-    label_file = os.path.join(LABEL_FOLDER, f"{image_id}_labels.json")
-    labels = json.load(open(label_file)) if os.path.exists(label_file) else {}
+    with label_lock:
+        labels = {}
+        if os.path.exists(label_file):
+            try:
+                with open(label_file) as f:
+                    labels = json.load(f)
+            except json.JSONDecodeError:
+                pass
 
-    # Remove old patch if relabeling
-    if str(spid) in labels:
-        old_path = labels[str(spid)]["patch_path"]
-        if os.path.exists(old_path):
-            os.remove(old_path)
+        if label == "unlabeled":
+            labels.pop(str(spid), None)
+        else:
+            out_dir = os.path.join(PATCH_FOLDER, image_id, label)
+            os.makedirs(out_dir, exist_ok=True)
 
-    # Handle erase
-    if label == "unlabeled":
-        if str(spid) in labels:
-            del labels[str(spid)]
-        json.dump(labels, open(label_file, "w"), indent=2)
-        return jsonify({"status": "removed"})
+            patch_path = os.path.join(out_dir, f"{spid}.png")
+            cv2.imwrite(patch_path, cv2.cvtColor(patch, cv2.COLOR_RGB2BGR))
 
-    # Save high-res patch
-    out_dir = os.path.join(PATCH_FOLDER, image_id, label)
-    os.makedirs(out_dir, exist_ok=True)
+            labels[str(spid)] = {
+                "label": label,
+                "patch_path": patch_path,
+                "bbox": [xmin, ymin, xmax, ymax],
+                "ts": int(time.time()),
+                "user": user
+            }
 
-    patch_path = os.path.join(out_dir, f"{spid}.png")
-    cv2.imwrite(patch_path, cv2.cvtColor(patch, cv2.COLOR_RGB2BGR))
+        with open(label_file, "w") as f:
+            json.dump(labels, f, indent=2)
 
-    ts = int(time.time())
-
-    labels[str(spid)] = {
-        "label": label,
-        "patch_path": patch_path,
-        "bbox": [xmin, ymin, xmax, ymax],
-        "ts": ts,
-        "user": user
-    }
-
-    json.dump(labels, open(label_file, "w"), indent=2)
-
-    return jsonify({"status": "ok", "patch_path": patch_path})
+    return jsonify({"status": "ok"})
 
 
 # -------------------------------------------------------------------
@@ -260,23 +247,28 @@ def save_label():
 @app.route("/labels/<image_id>")
 def get_labels(image_id):
     f = os.path.join(LABEL_FOLDER, f"{image_id}_labels.json")
-    return jsonify(json.load(open(f))) if os.path.exists(f) else jsonify({})
+    if not os.path.exists(f):
+        return jsonify({})
+    try:
+        with open(f) as fh:
+            return jsonify(json.load(fh))
+    except json.JSONDecodeError:
+        return jsonify({})
+
+
 # -------------------------------------------------------------------
-# SERVE UPLOADED IMAGES
+# STATIC
 # -------------------------------------------------------------------
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 
-# -------------------------------------------------------------------
-# STATIC FRONTEND
-# -------------------------------------------------------------------
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_frontend(path):
     full_path = os.path.join(app.static_folder, path)
-    if path != "" and os.path.exists(full_path):
+    if path and os.path.exists(full_path):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, "index.html")
 
