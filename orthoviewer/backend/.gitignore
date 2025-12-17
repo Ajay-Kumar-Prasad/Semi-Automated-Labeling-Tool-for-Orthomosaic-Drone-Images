@@ -3,3 +3,7 @@ backend/data/
 myvenv/
 __pycache__/
 uploads/
+segments/
+labels/
+patches/
+/backend/orthoenv/

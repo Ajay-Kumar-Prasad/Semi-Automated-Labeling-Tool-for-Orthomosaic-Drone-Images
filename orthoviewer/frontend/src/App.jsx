@@ -10,107 +10,168 @@ export default function App() {
   const [nSegments, setNSegments] = useState(800);
   const [compactness, setCompactness] = useState(10);
   const [loadId, setLoadId] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // Vite-safe API base
+  const BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
 
   function onFileChange(e) {
+    if (!e.target.files?.length) return;
     setFile(e.target.files[0]);
   }
 
   async function upload() {
-    if (!file) return alert("Please select a file");
+    if (!file) {
+      alert("Please select an image file first.");
+      return;
+    }
 
-    const fd = new FormData();
-    fd.append("image", file);
+    if (loading) return;
 
-    // 1. UPLOAD TO BACKEND
-    const res = await axios.post(
-      "http://127.0.0.1:5000/upload",
-      fd,
-      { headers: { "Content-Type": "multipart/form-data" } }
-    );
+    setLoading(true);
+    setSegmentsMeta(null);
+    setImageUrl(null);
 
-    const savedFilename = res.data.filename;
-    const imageID = res.data.image_id;
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
 
-    // Image served from backend URL
-    setImageUrl(`http://127.0.0.1:5000/uploads/${savedFilename}`);
+      // Upload (backend returns PREVIEW filename)
+      const uploadRes = await axios.post(`${BASE}/upload`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
-    // 2. RUN SEGMENTATION
-    const segRes = await axios.post(
-      "http://127.0.0.1:5000/segment",
-      {
-        image_filename: savedFilename,
+      const previewFilename = uploadRes.data.filename;
+
+      // IMPORTANT: frontend always uses preview image
+      setImageUrl(`${BASE}/uploads/${previewFilename}`);
+
+      // Segment using the same preview image
+      const segRes = await axios.post(`${BASE}/segment`, {
+        image_filename: previewFilename,
         n_segments: nSegments,
-        compactness,
-      }
-    );
+        compactness: compactness,
+      });
 
-    setSegmentsMeta(segRes.data);
-  }
-
-  async function loadSegmentsById(image_id) {
-    const res = await axios.get(`http://127.0.0.1:5000/segments/${image_id}`);
-
-    setSegmentsMeta(res.data);
-
-    // Load image preview
-    setImageUrl(`http://127.0.0.1:5000/uploads/${res.data.image_filename}`);
+      setSegmentsMeta(segRes.data);
+    } catch (err) {
+      console.error(err);
+      alert("Upload or segmentation failed. Check backend logs.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleLoad() {
-    if (!loadId) return;
-    await loadSegmentsById(loadId);
+    if (!loadId.trim() || loading) return;
+
+    setLoading(true);
+
+    try {
+      const res = await axios.get(`${BASE}/segments/${loadId}`);
+      setSegmentsMeta(res.data);
+
+      // Loaded sessions also use preview images
+      setImageUrl(`${BASE}/uploads/${res.data.image_filename}`);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to load session. Invalid image_id?");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <div className="app">
-      <h1 style={{ color: "#b388ff" }}>Semi-automated Superpixel Labeler</h1>
+      <h1 className="app-title">Orthomosaic Superpixel Annotator</h1>
+      <p className="app-subtitle">
+        Semi-automated crop health patch labeling tool
+      </p>
 
-      <div className="controls">
-        <div className="uploader">
-          <input type="file" onChange={onFileChange} />
-          <button onClick={upload} style={{ marginLeft: 8 }}>
-            Upload & Segment
+      {/* ================= TOP CONTROLS ================= */}
+      <div className="top-controls">
+
+        {/* Upload */}
+        <div className="control-card">
+          <div className="control-title">Upload Image</div>
+
+          <div className="field-row">
+            <div className="field-label">Choose file</div>
+            <input
+              type="file"
+              className="field-input"
+              accept=".tif,.tiff,.png,.jpg,.jpeg"
+              onChange={onFileChange}
+              disabled={loading}
+            />
+          </div>
+
+          <button onClick={upload} disabled={loading}>
+            {loading ? "Processing…" : "Upload & Segment"}
           </button>
         </div>
 
-        <div style={{ marginLeft: 16 }}>
-          <label>n_segments: </label>
-          <input
-            type="number"
-            value={nSegments}
-            onChange={(e) => setNSegments(e.target.value)}
-            style={{ width: 100 }}
-          />
+        {/* Segmentation */}
+        <div className="control-card">
+          <div className="control-title">Segmentation Settings</div>
 
-          <label style={{ marginLeft: 8 }}>compactness: </label>
-          <input
-            type="number"
-            value={compactness}
-            onChange={(e) => setCompactness(e.target.value)}
-            style={{ width: 100 }}
-          />
+          <div className="field-row">
+            <div className="field-label">Segments</div>
+            <input
+              type="number"
+              className="field-input"
+              value={nSegments}
+              onChange={(e) => setNSegments(Number(e.target.value))}
+              disabled={loading}
+            />
+          </div>
+
+          <div className="field-row">
+            <div className="field-label">Compactness</div>
+            <input
+              type="number"
+              className="field-input"
+              value={compactness}
+              onChange={(e) => setCompactness(Number(e.target.value))}
+              disabled={loading}
+            />
+          </div>
         </div>
 
-        <div style={{ marginLeft: 16 }}>
-          <input
-            placeholder="Load image_id"
-            value={loadId}
-            onChange={(e) => setLoadId(e.target.value)}
-          />
-          <button onClick={handleLoad} style={{ marginLeft: 8 }}>
-            Load by ID
-          </button>
+        {/* Load Session */}
+        <div className="control-card">
+          <div className="control-title">Load Previous Session</div>
+
+          <div className="load-controls">
+            <input
+              className="field-input"
+              placeholder="Enter image_id"
+              value={loadId}
+              onChange={(e) => setLoadId(e.target.value)}
+              disabled={loading}
+            />
+
+            <button
+              className="secondary"
+              onClick={handleLoad}
+              disabled={loading}
+            >
+              Load
+            </button>
+          </div>
         </div>
+
       </div>
 
+      {/* ================= ANNOTATOR ================= */}
       {imageUrl && segmentsMeta ? (
         <SuperpixelAnnotator
           imageUrl={imageUrl}
           segmentsMeta={segmentsMeta}
         />
       ) : (
-        <div style={{ marginTop: 24 }}>
-          No image segmented yet. Upload a PNG/JPG/TIF to start.
+        <div className="empty-state">
+          Upload an orthomosaic image to begin annotation.
         </div>
       )}
     </div>

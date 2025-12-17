@@ -1,72 +1,146 @@
-# 🛰️ Semi-Automated Labeling Tool for Orthomosaic Drone Images
-
-A web-based application for efficient, scalable, and accurate annotation of drone-captured agricultural orthomosaics using superpixels, machine learning, and human refinement tools.
-
----
-
-## 🎯 Project Objective
-
-The objective of this web application is to provide a semi-automated labeling tool for orthomosaic drone images, enabling faster, more consistent, and more scalable creation of segmentation datasets for agricultural analysis.
-
-Traditional pixel-by-pixel annotation of large orthomosaic images is slow and error-prone. This tool accelerates the process by:
-
-- Automatically generating superpixels to break the image into meaningful regions
-- Extracting features for each region
-- Suggesting initial class labels using a machine learning model
-- Allowing the user to visually review, correct, and export the final mask
-
-This creates an efficient human-in-the-loop labeling pipeline, where the model handles the tedious work and the human ensures accuracy.
+# Superpixel-Based Orthomosaic Annotation & Dataset Generator
+*A unified tool for generating machine-learning datasets for crop yield prediction and disease/stress classification.*
 
 ---
 
-## ✨ Key Features
+## 📌 Overview
 
-### Image Handling
-- Upload large orthomosaic drone images
-- Preview and inspect images
+This tool converts drone-captured **RGB orthomosaic images** into structured, ML-ready datasets for:
 
-### Automated Assistance
-- Superpixel segmentation
-- Feature extraction
-- ML-based preliminary label prediction
-- Automatic color-coded mask generation
+- **Crop Yield Prediction** (regression or classification)
+- **Crop Disease / Stress Classification** (Healthy / Chlorosis / Necrosis / Others)
 
-### Manual Correction Tools
-- Brush tool for editing
-- Region selection
-- Class picker
-- Mask refinement tools
-
-### Export Options
-- Export refined masks
-- Export annotation dataset
-- Export superpixel metadata
+It provides an end-to-end workflow including image preprocessing, superpixel segmentation, interactive annotation, patch extraction, and dataset export.  
+A single orthomosaic can generate **multiple datasets for different tasks**, reusing the same segmentation and patches.
 
 ---
 
-## 🔧 High-Level Architecture
+## 🚀 Features
 
-### Frontend (React)
-- Image upload interface
-- Mask visualization and editing
-- Human-in-the-loop correction tools
-- Export functionality
+### ✅ 1. Orthomosaic Ingestion
+- Supports PNG / JPG / TIFF inputs  
+- Converts TIFF → PNG for browser compatibility  
+- Automatically downsamples large images  
+- Stores scale factor for future reference  
 
-### Backend (Flask)
-- Image upload handling
-- Superpixel computation
-- Feature extraction
-- ML model inference
-- Mask generation
-- Serving output masks to frontend
+---
 
-### Machine Learning Pipeline
-- Superpixel segmentation (SLIC)
-- Feature engineering (color, variance, optional NDVI)
-- Texture features (optional GLCM)
-- RandomForest classifier
-- Training script for generating `.joblib` model file
+### ✅ 2. Superpixel Segmentation (SLIC/SLIF)
+- Produces 500–1500 biologically meaningful regions  
+- Extracts:
+  - Polygons  
+  - Centroid  
+  - Area  
+  - LAB color metrics  
+  - Bounding boxes  
+- Saves segmentation output to `segments.json`
 
+---
+
+### ✅ 3. Web-Based Superpixel Annotation Tool
+Interactive UI for labeling segmented regions:
+- Hover highlight  
+- Click-to-label  
+- Undo/Redo  
+- Zoom, Pan, Mini-map  
+- Real-time overlay of polygons  
+
+Supports **multiple annotation modes**:
+
+#### Yield Mode
+- HighYield  
+- MediumYield  
+- LowYield  
+*(or numeric yield values if available)*
+
+#### Disease Mode
+- Healthy  
+- Chlorosis (Yellowing)  
+- Necrosis (Brown/Dead Tissue)  
+- Others (Soil, Shadow, Weeds)
+
+Labels are stored separately:
+- `labels_yield.json`
+- `labels_disease.json`
+
+---
+
+### ✅ 4. Superpixel Patch Extraction
+For every superpixel:
+- Applies polygon mask  
+- Extracts region-only RGB patch  
+- Saves patch as PNG  
+- Ensures consistent patch dimensions  
+
+Stored in:
+```
+patches/
+image_001_seg_1.png
+image_001_seg_2.png
+...
+```
+
+
+---
+
+### ✅ 5. Dataset Export (CSV)
+The tool exports **two datasets**, one for each task.
+
+#### 📄 Yield Dataset → `dataset_yield.csv`
+Columns:
+```
+segment_id
+yield_label_or_value
+centroid_x
+centroid_y
+area
+L_mean
+a_mean
+b_mean
+patch_path
+image_id
+```
+
+
+#### 📄 Disease Dataset → `dataset_disease.csv`
+Columns:
+```
+segment_id
+disease_label
+centroid_x
+centroid_y
+area
+L_mean
+a_mean
+b_mean
+patch_path
+image_id
+```
+
+
+These formats integrate directly with:
+- PyTorch DataLoaders  
+- TensorFlow pipelines  
+- XGBoost / RandomForest  
+
+---
+
+## 📁 Output Directory Structure
+```
+output/
+image_001/
+orthomosaic.png
+segments.json
+labels_yield.json
+labels_disease.json
+patches/
+image_001_seg_1.png
+image_001_seg_2.png
+...
+dataset_yield.csv
+dataset_disease.csv
+metadata.json
+```
 ---
 
 ## 📁 Project Structure
@@ -139,28 +213,57 @@ npm run dev
 
 -----
 
-## 🗺️ Feature Roadmap
+---
 
-### 💜 MUST-HAVE FEATURES (Basic → Usable)
+## 🧠 Supported Machine Learning Tasks
 
-  * **1. Undo / Redo:** Implement a simple action stack for immediate correction of labeling errors.
-  * **2. Highlight Selected Polygon:** Clearly indicate the active superpixel with a distinct border upon selection.
-  * **3. Keyboard Shortcuts:** Enable fast annotation (`1, 2, 3` for class selection, `Z` for undo).
-  * **4. Sidebar Label Counts:** Display a running count for each label to track progress.
-  * **5. Mini-map (Overview):** An inset map showing the user's current zoom/pan window within the large image.
+### 🔹 Yield Prediction
+- Regression (predict numeric yield)
+- Classification (High / Medium / Low)
+- CNN + metadata hybrid models (patch + features)
 
-### 💙 NICE-TO-HAVE FEATURES (Usable → Research-Grade)
+### 🔹 Disease/Stress Classification
+- Multi-class classification:
+  - Healthy
+  - Chlorosis
+  - Necrosis
+  - Others
+- Binary disease detection possible
 
-  * **6. Brush Mode:** Allow click-and-drag painting to quickly assign a label across dozens of adjacent superpixels.
-  * **7. Multi-select Polygons:** Enable `Shift + Click` to select multiple regions and assign a label to all at once.
-  * **8. Auto-merge Visually Identical Polygons:** Implement clustering to merge adjacent, homogeneous regions automatically.
-  * **9. Layer Visibility Controls:** Add toggles to show/hide the original image, polygons, or labels.
-  * **10. Segmentation Preview Slider:** Allow users to adjust segmentation parameters (`n_segments`, `compactness`) before final computation.
+---
 
-### 👑 GOD-TIER FEATURES (Research-Grade → Commercial-Grade)
+## 🔄 End-to-End Pipeline
 
-  * **11. AI-Assisted Auto-Labeling:** Incorporate simple heuristics (e.g., NDVI, texture analysis) for stronger initial predictions.
-  * **12. Polygon Refinement (Split/Merge):** Enable manual editing to split an imperfect superpixel or merge adjacent ones.
-  * **13. Advanced Mask Export:** Support a variety of ML and GIS formats: **GeoTIFF masks**, **COCO segmentation format**, and **Shapefiles**.
-  * **14. Annotation Timelines (Versioning):** Store a history of labeling and segmentation versions linked to a user ID.
-  * **15. Multi-User Collaboration:** Implement a database model to support team labeling with conflict detection.
+1. Upload orthomosaic  
+2. Preprocess image (resize, normalize, convert)  
+3. Generate superpixels  
+4. Annotate regions (yield or disease mode)  
+5. Extract patches  
+6. Export task-specific datasets  
+7. Train CNN/ViT/Hybrid models  
+
+---
+
+## 🧩 Extensibility
+
+- Add custom label sets  
+- Plug in automatic model-based pre-labeling  
+- Multi-task learning (shared backbone + multiple prediction heads)  
+- Integration with GIS data (future expansion)  
+
+---
+
+## 📌 Applications
+
+- Precision Agriculture  
+- Yield Estimation Models  
+- Crop Disease Monitoring  
+- Stress Analysis  
+- Research in region-based deep learning  
+
+---
+
+## 🤝 Contributions
+Pull requests for new features, optimizations, and improvements are welcome.
+
+--- 

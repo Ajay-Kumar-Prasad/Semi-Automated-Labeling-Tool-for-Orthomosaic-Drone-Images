@@ -1,0 +1,27 @@
+# Python venv
+orthoviewer/backend/orthoenv/
+
+# Auto-generated image artifacts
+orthoviewer/backend/uploads/
+orthoviewer/backend/segments/
+orthoviewer/backend/labels/
+orthoviewer/backend/patches/
+
+# Large data tiles
+data/tiles/
+
+# Zip outputs
+*.zip
+
+# macOS garbage
+.DS_Store
+**/.DS_Store
+
+*.npy
+*.tif
+*.tiff
+
+# Python env
+**/orthoenv/
+venv/
+.env/
